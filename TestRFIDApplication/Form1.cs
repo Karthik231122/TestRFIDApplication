@@ -60,7 +60,17 @@ namespace TestRFIDApplication
 
         private void AppendLog(string message)
         {
-            txtLog.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}");
+
+            if (txtLog.InvokeRequired)
+            {
+                txtLog.Invoke(new Action(() => txtLog.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}")));
+            }
+            else
+            {
+                txtLog.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}");
+            }
+
+            //txtLog.AppendText($"{DateTime.Now:HH:mm:ss} - {message}{Environment.NewLine}");
         }
 
         private void btnStopListening_Click(object sender, EventArgs e)
