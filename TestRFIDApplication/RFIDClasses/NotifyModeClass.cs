@@ -6,6 +6,7 @@ using FEDM;
 using FEDM.Utility;
 using FEDM.FunctionUnit;
 using log4net;
+using static FEDM.BrmItem;
 
 
 namespace TestRFIDApplication.RFIDClasses
@@ -15,13 +16,12 @@ namespace TestRFIDApplication.RFIDClasses
         private static readonly ILog logger = LogManager.GetLogger(typeof(NotificationReader));
 
         private ReaderModule m_reader;
-        private ExtensionModule m_extensionModule;
         private readonly object _lock = new object();
 
         // *********************************************************
         // SETTINGS
         // *********************************************************
-        private int _port ;           // Set Port-Number
+        private int _port;           // Set Port-Number
         private string ipAddr = "";     // (Default: any IPv4)
         private bool keepAlive = true;  // Set Keep-Alive on/off
         // *********************************************************
@@ -32,19 +32,19 @@ namespace TestRFIDApplication.RFIDClasses
         {
             _port = port;
             m_reader = new ReaderModule(RequestMode.UniDirectional);
-            m_extensionModule = new ExtensionModule(m_reader);
+            m_reader.setReaderType(ReaderType.LRU500i_PoE);
+            //m_extensionModule = new ExtensionModule(m_reader);
         }
         ~NotifyModeClass()
         {
-            m_extensionModule.Dispose();
             m_reader.Dispose();
         }
         public void StartListening()
         {
             lock (_lock)
             {
-                m_reader.brm().clearQueue();
-                m_reader.brm().setQueueMaxItemCount(0);
+                //m_reader.brm().clearQueue();
+                //m_reader.brm().setQueueMaxItemCount(0);
 
                 int state = m_reader.async().startNotification(this);
                 string msg1 = "startNotification: " + m_reader.lastErrorStatusText();
@@ -57,7 +57,7 @@ namespace TestRFIDApplication.RFIDClasses
                 {
                     logger.Error(msg1);
                     LogMessage?.Invoke("Error: " + msg1);
-                    return; 
+                    return;
                 }
 
                 state = m_reader.startListenerThread(ListenerParam.createTcpListenerParam(_port, ipAddr, keepAlive), this);
@@ -111,15 +111,21 @@ namespace TestRFIDApplication.RFIDClasses
         }
         public void onConnect(PeerInfo peerInfo)
         {
-            string msg = "Reader connected at: " + peerInfo.ipAddress();
-            logger.Info(msg);
-            LogMessage?.Invoke(msg);
+            lock (_lock)
+            {
+                string msg = "Reader connected at: " + peerInfo.ipAddress();
+                logger.Info(msg);
+                LogMessage?.Invoke(msg);
+            }
         }
         public void onDisconnect()
         {
-            string msg = "Reader disconnected";
-            logger.Warn(msg);
-            LogMessage?.Invoke(msg);
+            lock (_lock)
+            {
+                string msg = "Reader disconnected";
+                logger.Warn(msg);
+                LogMessage?.Invoke(msg);
+            }
         }
         public void onNewRequest()
         {
@@ -141,25 +147,25 @@ namespace TestRFIDApplication.RFIDClasses
                     LogMessage?.Invoke(stateText);
                     switch (eventType)
                     {
-                        case EventType.IdentificationEvent:
-                            onNewIdentificationEvent();
+                        case EventType.BrmEvent:
+                            onNewBrmEvent();
                             break;
 
-                        case EventType.InputEvent:
-                            onNewInputEvent();
-                            break;
+                        //case EventType.InputEvent:
+                        //onNewInputEvent();
+                        //break;
 
                         case EventType.DiagEvent:
                             onNewDiagStatusEvent();
                             break;
 
-                        case EventType.TagEvent:
-                            onNewTagEvent();
-                            break;
+                        //case EventType.TagEvent:
+                        //  onNewTagEvent();
+                        //  break;
 
-                        case EventType.PeopleCounterEvent:
-                            onNewPeopleCounterEvent();
-                            break;
+                        //case EventType.PeopleCounterEvent:
+                        //  onNewPeopleCounterEvent();
+                        //  break;
 
                         default:
                             // ignore all other event types
@@ -172,6 +178,182 @@ namespace TestRFIDApplication.RFIDClasses
                 }
             }
         }
+
+        private void onNewBrmEvent()
+        {
+            BrmItem brmItem = m_reader.brm().popItem();
+            while (brmItem != null)
+            {
+                StringBuilder brmItemPrint = new StringBuilder();
+
+                // **************
+                // Date
+                // **************
+                if (brmItem.dateTime().isValidDate())
+                {
+                    int day = brmItem.dateTime().day();
+                    int month = brmItem.dateTime().month();
+                    int year = brmItem.dateTime().year();
+
+                    brmItemPrint.Append("Date: " + year + "-" + month + "-" + day + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("Date: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Time
+                // **************
+
+                if (brmItem.dateTime().isValidTime())
+                {
+                    int hour = brmItem.dateTime().hour();
+                    int minute = brmItem.dateTime().minute();
+                    int second = brmItem.dateTime().second();
+                    int milliSecond = brmItem.dateTime().milliSecond();
+
+                    brmItemPrint.Append("Time: " + hour + ":" + minute + ":" + second + "." + milliSecond + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("Time: " + "not valid" + "\n");
+                }
+
+                // **************
+                // IDD
+                // **************
+                if (brmItem.tag().isValid())
+                {
+                    brmItemPrint.Append("IDD: " + brmItem.tag().iddToHexString() + "\n");
+
+                    // **************
+                    // RSSI
+                    // **************
+                    List<RssiItem> list = brmItem.tag().rssiValues();
+                    foreach (RssiItem rssiItem in list)
+                    {
+                        if (rssiItem.isValid())
+                        {
+                            brmItemPrint.Append("RSSI: " + rssiItem.rssi() + "\n");
+                            brmItemPrint.Append("Phase Angle: " + rssiItem.phaseAngle() + "dec" + "\n");
+                            brmItemPrint.Append("Antenna Number: " + rssiItem.antennaNumber() + "\n");
+                        }
+                        else
+                        {
+                            brmItemPrint.Append("RSSI: " + "not valid" + "\n");
+                        }
+                    }
+                }
+                else
+                {
+                    brmItemPrint.Append("IDD: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Data
+                // **************
+                if (brmItem.dataBlocks().isValid())
+                {
+                    brmItemPrint.Append("Data: " + HexConvert.toHexString(brmItem.dataBlocks().blocks(), " ") + "\n");
+                    brmItemPrint.Append("Data blockCount: " + brmItem.dataBlocks().blockCount() + "\n");
+                    brmItemPrint.Append("Data blockSize: " + brmItem.dataBlocks().blockSize() + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("Data: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Antenna
+                // **************
+                if (brmItem.antennas().isValid())
+                {
+                    brmItemPrint.Append("Antenna: " + brmItem.antennas().antennas() + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("Antenna: " + "not valid" + "\n");
+                }
+
+                // **************
+                // MAC-Address
+                // **************
+                if (brmItem.mac().isValid())
+                {
+                    brmItemPrint.Append("MAC: " + HexConvert.toHexString(brmItem.mac().macAddress(), ":") + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("MAC: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Input
+                // **************
+
+                if (brmItem.input().isValid())
+                {
+                    brmItemPrint.Append("Input: " + brmItem.input().input() + "\n");
+                    brmItemPrint.Append("State: " + brmItem.input().state() + "\n");
+                }
+                else
+                {
+                    brmItemPrint.Append("Input: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Device/Scanner ID
+                // **************
+                if (brmItem.scannerId().isValid())
+                {
+                    if (brmItem.scannerId().type() == SectorScannerId.TypeDeviceId)
+                    {
+                        brmItemPrint.Append("Device ID: " + brmItem.scannerId().scannerId() + "\n");
+                    }
+                    if (brmItem.scannerId().type() == SectorScannerId.TypeScannerId)
+                    {
+                        brmItemPrint.Append("Scanner ID: " + brmItem.scannerId().scannerId() + "\n");
+                    }
+
+                }
+                else
+                {
+                    brmItemPrint.Append("Device/Scanner ID: " + "not valid" + "\n");
+                }
+
+                // **************
+                // Direction
+                // **************
+
+                if (brmItem.direction().isValid())
+                {
+
+                    if (brmItem.direction().isDetectionDisabled())
+                    {
+                        brmItemPrint.Append("Sector Direction: " + "Detection Disabled" + "\n");
+                    }
+                    if (brmItem.direction().isDirection1())
+                    {
+                        brmItemPrint.Append("Sector Direction: " + "Direction 1" + "\n");
+                    }
+                    if (brmItem.direction().isDirection2())
+                    {
+                        brmItemPrint.Append("Sector Direction: " + "Direction 2" + "\n");
+                    }
+
+                }
+                else
+                {
+                    brmItemPrint.Append("Sector Direction: " + "not valid");
+                }
+                logger.Info(brmItemPrint.ToString());
+                LogMessage?.Invoke(brmItemPrint.ToString());
+                brmItem = m_reader.brm().popItem();
+            }
+
+        }
+
         private void onNewIdentificationEvent()
         {
             ReaderIdentification readerIdent = m_reader.identification();
@@ -291,35 +473,7 @@ namespace TestRFIDApplication.RFIDClasses
                 tagItem = m_reader.tagEvent().popItem();
             }
         }
-        private void onNewPeopleCounterEvent()
-        {
-            PeopleCounterEventItem peopleCounterEventItem = m_extensionModule.pdevice().popPeopleCounterItem();
-            while (peopleCounterEventItem != null)
-            {
-                if (peopleCounterEventItem.isValid())
-                {
-                    string timestamp = peopleCounterEventItem.dateTime().isValid()? "Date: " + peopleCounterEventItem.dateTime().toString(): "Date: not valid";
 
-                    string details =
-                 $"DetectorCounter 1/1: {peopleCounterEventItem.detector1Counter1()}\n" +
-                 $"DetectorCounter 1/2: {peopleCounterEventItem.detector1Counter2()}\n" +
-                 $"DetectorCounter 2/1: {peopleCounterEventItem.detector2Counter1()}\n" +
-                 $"DetectorCounter 2/2: {peopleCounterEventItem.detector2Counter2()}\n" +
-                 timestamp;
-
-
-                    logger.Info("People Counter Event:\n" + details);
-                    LogMessage?.Invoke("People Counter Event:\n" + details);
-
-                    peopleCounterEventItem = m_extensionModule.pdevice().popPeopleCounterItem();
-                }
-                else
-                {
-                    logger.Warn("PeopleCounterEventItem not valid");
-                    LogMessage?.Invoke("PeopleCounterEventItem not valid");
-                }
-            }
-        }
         private static string TagEventToString(TagEventItem tagEventItem)
         {
             StringBuilder tagEventItemPrint = new StringBuilder();
