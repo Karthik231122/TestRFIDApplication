@@ -45,7 +45,7 @@ namespace TestRFIDApplication.RFIDClasses
             {
                 //m_reader.brm().clearQueue();
                 //m_reader.brm().setQueueMaxItemCount(0);
-
+                m_reader.brm().setSendAcknowlegdeToBrmEvent_0x22(true);
                 int state = m_reader.async().startNotification(this);
                 string msg1 = "startNotification: " + m_reader.lastErrorStatusText();
                 if (state == ErrorCode.Ok)
